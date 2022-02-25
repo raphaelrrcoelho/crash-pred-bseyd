@@ -1,0 +1,347 @@
+---
+title: "BSEYD1"
+output: pdf_document
+
+#Baseado no artigo 'Does the Bond-Stock Earning Yield Differential Model Predict Equity Market Corrections Better Than High P/E Models?' (Sebastien Lleo e William T. Ziemba).
+
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+def.chunk.hook <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options){
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalise", paste0("\\", options$size, "\n\n", x, "\n\n \\normalsize"), x)
+}) 
+```
+
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+## Pacotes utilizados
+library(reshape2)
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(scales)
+library(timetk)
+library(knitr)
+#library(ecoseries)
+library(readr)
+library(xts)
+library(ggplot2)
+library(scales)
+library(png)
+library(grid)
+library(seasonal) 
+library(forecast)
+library(readxl)
+library(kableExtra)
+library(gmodels)
+library(rapportools)
+library(TTR)
+library(caTools)
+
+```
+
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+signal_data = readxl::read_xlsx('../dados/SC_signal_data.xlsx', range = 'A2:R15479')
+
+colnames(signal_data) = c('Dates', 'spx_index',	'rty_index',	'gt10_govt',	'mxeu_index',	'gteur10y_govt', 'mxcn_index', 'gtcny10y_govt', 'ibov_index', 'gtbrl10y_govt',	'spx_earnings',	'rty_earnings',	'gt10_earnings',	'mxeu_earnings',	'gteur10y_earnings', 'mxcn_earnings', 'gtcny10y_earnings', 'ibov_earnings', 'gtbrl10y_earnings')
+
+signal_data =
+  signal_data %>%
+  select('Dates', 'spx_index',	'rty_index',	'gt10_govt',	'mxeu_index',	'gteur10y_govt', 'mxcn_index', 'gtcny10y_govt', 'ibov_index', 'gtbrl10y_govt',	'spx_earnings',	'rty_earnings',	'mxeu_earnings', 'mxcn_earnings', 'ibov_earnings') %>%
+  mutate(spx_index = ifelse(spx_index== '#N/A N/A', NA, spx_index)) %>%
+  mutate(rty_index = ifelse(rty_index== '#N/A N/A', NA, rty_index)) %>%
+  mutate(gt10_govt = ifelse(gt10_govt== '#N/A N/A', NA, gt10_govt)) %>%
+  mutate(mxeu_index = ifelse(mxeu_index== '#N/A N/A', NA, mxeu_index)) %>%
+  mutate(gteur10y_govt = ifelse(gteur10y_govt== '#N/A N/A', NA, gteur10y_govt)) %>%
+  mutate(mxcn_index = ifelse(mxcn_index== '#N/A N/A', NA, mxcn_index)) %>%
+  mutate(gtcny10y_govt = ifelse(gtcny10y_govt== '#N/A N/A', NA, gtcny10y_govt)) %>%
+  mutate(ibov_index = ifelse(ibov_index== '#N/A N/A', NA, ibov_index)) %>%
+  mutate(gtbrl10y_govt = ifelse(gtbrl10y_govt== '#N/A N/A', NA, gtbrl10y_govt)) %>%
+  mutate(spx_earnings = ifelse(spx_earnings== '#N/A N/A', NA, spx_earnings)) %>%
+  mutate(rty_earnings = ifelse(rty_earnings== '#N/A N/A', NA, rty_earnings)) %>%
+  mutate(mxeu_earnings = ifelse(mxeu_earnings== '#N/A N/A', NA, mxeu_earnings)) %>%
+  mutate(mxcn_earnings = ifelse(mxcn_earnings== '#N/A N/A', NA, mxcn_earnings)) %>%
+  mutate(ibov_earnings = ifelse(ibov_earnings== '#N/A N/A', NA, ibov_earnings))
+
+signal_data =
+  signal_data %>%
+  mutate(spx_index = as.double(spx_index)) %>%
+  mutate(rty_index = as.double(rty_index)) %>%
+  mutate(gt10_govt = as.double(gt10_govt)) %>%
+  mutate(mxeu_index = as.double(mxeu_index)) %>%
+  mutate(gteur10y_govt = as.double(gteur10y_govt)) %>%
+  mutate(mxcn_index = as.double(gtcny10y_govt)) %>%
+  mutate(gtcny10y_govt = as.double(gtcny10y_govt)) %>%
+  mutate(ibov_index = as.double(ibov_index)) %>%
+  mutate(gtbrl10y_govt = as.double(gtbrl10y_govt)) %>%
+  mutate(spx_earnings = as.double(spx_earnings)) %>%
+  mutate(rty_earnings = as.double(rty_earnings)) %>%
+  mutate(mxeu_earnings = as.double(mxeu_earnings)) %>%
+  mutate(mxcn_earnings = as.double(mxcn_earnings)) %>%
+  mutate(ibov_earnings = as.double(ibov_earnings))
+
+```
+
+
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+# RTY 1995-01-30
+# EUR 1998-12-30
+# BR  2007-03-30
+# China 2005-11-11
+
+signal_data <- signal_data %>% filter(Dates > '2005-11-11')
+
+# Diferencial entre government bonds e retornos do spx.
+signal_data = 
+  signal_data %>% 
+  mutate(bseyd = gtcny10y_govt - mxcn_earnings)
+
+signal_data$index_data <- signal_data$mxcn_index
+
+# Definições 
+pico <- 252
+pico1<- pico - 1
+crashlimit <- pico*2
+crashlimit1 <- crashlimit - 1
+
+# Calculando o intervalo de confiança
+mean_movel <- rollapply(slice(signal_data %>% select(bseyd)), pico, mean )
+colnames(mean_movel) <- "mean_movel"
+
+sd_movel <- rollapply(slice(signal_data %>% select(bseyd)), pico, sd)
+colnames(sd_movel) <- "sd_movel"
+
+norm <- qnorm(0.95)
+
+ci <- mean_movel + (norm*(sd_movel/sqrt(pico)))
+colnames(ci) <- "ci"
+
+
+signal_data = 
+  signal_data %>%
+  mutate( mean_movel = c(rep(NA, pico1), mean_movel)) %>%
+  mutate( sd_movel = c(rep(NA, pico1),sd_movel)) %>%
+  mutate( ci = c(rep(NA, pico1),ci))
+
+  
+signal_data = 
+  signal_data %>%
+  mutate(signal_bseyd = bseyd - ci) %>%
+  mutate(signal_bseyd_dm = ifelse(signal_bseyd>0, 1,0))
+
+s1 = rollsum(signal_data$signal_bseyd_dm, 31, align='right', fill=NA)
+signal_data = cbind(signal_data,s1)
+
+
+# Variável S sinal indicadora de crashes:
+ signal_data =
+   signal_data %>%
+   mutate(signal_crash = (ifelse((s1==1) & (signal_bseyd_dm==1) ,1, 0)))
+ 
+ 
+num_sinais <- table(signal_data$signal_crash)
+as.data.frame(num_sinais) 
+
+
+# Variável que mostra o pico.
+index_max <- runMax(slice(signal_data %>% select(index_data)), pico)
+signal_data = cbind(signal_data, index_max)
+
+# Loocal troughs
+
+
+signal_data =
+  signal_data %>%
+  mutate(local_troughs_back = ifelse(index_data == (runmin(signal_data$index_data, 30, align = 'right')),1,0)) %>%
+  mutate(local_troughs_for = ifelse(index_data == (runmin(signal_data$index_data, 30, align = 'left')), 1, 0)) %>%
+   mutate(local_troughs = ifelse(local_troughs_back ==1 & local_troughs_for == 1 , 1, 0))
+
+
+# Decline
+signal_data =
+  signal_data %>%
+  mutate(decline = (index_data/index_max)-1)
+
+# Ct
+ signal_data$ct = ifelse(signal_data$decline<=-0.1 & lag(signal_data$decline, 1)>-0.1, 1, 0)
+
+ ct_data = signal_data %>% 
+  select(Dates, index_max, ct) %>%
+  filter(ct==1)
+
+ ct_data$ct_temp = ifelse(ct_data$index_max == lag(ct_data$index_max, 1) , 1, 0)
+ 
+ ct_data = ct_data %>% 
+  select(Dates,ct_temp) 
+
+signal_data <- full_join(signal_data, ct_data, by = "Dates")
+```
+
+
+```{r}
+
+
+
+
+signal_data$ct_temp[is.na(signal_data$ct_temp)] <- 0
+
+# For para garantir que os máximos das crises sejam diferentes
+i = 0
+interval = matrix(c(0,0),nrow = 1,ncol = 2)
+interval$inicio =0
+interval$fim =0
+
+interval_inicio =c(NA)
+interval_fim =c(NA)
+
+class(interval_inicio)<- class(interval_fim)<- "Date"
+
+interval = tibble(inicio = NA, fim = NA)
+
+
+open_interval = 0
+j = 0
+k = l = 0
+
+for(i in (pico+1):dim(signal_data)[1]){
+
+j = j+1
+
+  if((signal_data$ct[i] == 1) && (signal_data$ct_temp[i]==0)){
+    if(open_interval==0){
+    open_interval = 1
+    k = k+1
+    temp_open_interval = signal_data$Dates[i]
+    interval_inicio[k]= (temp_open_interval)
+    
+  }
+  }
+  
+  else if((signal_data$local_troughs[i] == 1) && (open_interval == 1) ){
+    temp_close_interval = signal_data$Dates[i]
+    open_interval = 0
+    l=l+1
+    interval_fim[l] = (temp_close_interval)
+    
+  }
+
+}
+    
+signal_data$Dates + 1
+
+ m<-0
+ betw = c()
+ pertenceu <- 0
+ for (m in 1:dim(signal_data)[1]) {
+   
+   for (n in 1:length(interval_fim)) {
+     
+    if( ((interval_inicio[n]+1)<=signal_data$Dates[m])  && (interval_fim[n] >=signal_data$Dates[m])){
+      
+     pertenceu<-1
+      }
+      
+     betw[m]<-ifelse(pertenceu == 1,1,0)
+     
+   }
+   pertenceu <- 0
+ }
+ 
+signal_data$betw <- betw
+signal_data$index_max <- ifelse(betw==1,NA,index_max)
+
+# Recalculando o decline para o novo máximo
+signal_data =
+  signal_data %>%
+  mutate(decline = (index_data/index_max)-1)
+
+signal_data$ct = ifelse(signal_data$decline<=-0.1 & lag(signal_data$decline, 1)>-0.1, 1, 0)
+
+signal_data$ct[is.na(signal_data$ct)] <- 0
+
+# Criando o c_th
+c_th <- 1- (rollapply((1-slice(signal_data %>% select(ct))), crashlimit, prod))
+signal_data =
+  signal_data %>%
+  mutate(c_th = c(c_th, rep(NA, crashlimit1)))
+
+
+# Variável true_crash que retorna 1 se houve sinal de crash e se realmente houve crash nos dois anos seguintes.
+signal_data =
+   signal_data %>%
+  mutate(true_crash = ifelse(signal_crash==1 & c_th==1, 1, ifelse(signal_crash==1 & c_th==0, 0, NA))) 
+
+# DataFrame com  a série de sinais que prevêem os crashes se eles realmente ocorreram.
+true_crash_df = signal_data %>% 
+  select(Dates, index_max, true_crash) %>%
+  filter(!is.na(true_crash))
+
+num_true_signals  <- table(true_crash_df$true_crash)
+as.data.frame(num_true_signals) 
+
+
+# Executando o teste de max likelihood ratio
+
+# Forma 1 de resolução
+p_model1 = 0.5
+p_model2  = mean(true_crash_df$true_crash) 
+
+num_acertos = sum(true_crash_df$true_crash)
+
+like_ratio <- (((1-p_model1)/(1-p_model2))**length(true_crash_df$true_crash))*(((p_model1*(1-p_model2))/(p_model2*(1-p_model1)))**num_acertos)
+lambda_stat1 <- -2*log(like_ratio)
+
+
+# Forma 2 de resolução
+Model1 <- prod(p_model1**true_crash_df$true_crash*(1-p_model1)**(1-true_crash_df$true_crash))*100
+Model2 <- prod(p_model2**true_crash_df$true_crash*(1-p_model2)**(1-true_crash_df$true_crash))*100
+likelihood_ratio <- Model1/Model2
+lambda_stat2 <- -2*log(resultado) 
+
+
+# comparando o valor calculado com o valor tabelado 
+P_005 = 3.841 
+string_teste<-ifelse(lambda_stat2 >= P_005, print("rejeita h0 a 95%"), print("não rejeita h0 a 95%"))  
+print(string_teste)
+
+
+# Teste de hipótese para o nosso modelo 
+# H0: p=0.5 / H1: p!=0.5
+
+
+
+
+
+# Descrição: estimou-se um total de 46 sinais de crashes de 1962 a 2021, claro que precisamos lembrar que por conta da forma como a amostra é construída, perdemos informações no início e no final da amostra. 46 sinais foram identificados e desses, 36 realmente representaram um crash nos dois anos consecutívos. 
+ 
+
+ ### COMENTÁRIOS:
+  # Testei usando o intervalo de confiança de uma normal padrão N(0,1) e o resultado fora 51 sinais de crash entre 1962 e 2012 (muito acima dos 39 do paper).
+
+  # Os dois, sinais de crash de 2019 e 2020 não aparecem no vetor X porque perdemos as observações do c_th pelo fato de que o H=504 nos faz perder as 504 ultimas observações, ou seja, não olhamos para os dois ultimos anos da amostra. 
+# signal_data_2 = signal_data %>%
+#   filter(S==1)          Forma de checar o ocorrido. 
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+```{r}
+
+```
+
